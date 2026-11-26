@@ -4,6 +4,8 @@
 
 للربط مع الباك‑إند: **[INTEGRATION.md](INTEGRATION.md)**.
 
+> ⚠️ **v1.0.0 فيها مشاكل معروفة في التشغيل الـ live — اقرا [KNOWN_ISSUES.md](KNOWN_ISSUES.md) قبل الاستخدام.**
+
 ## الهيكل
 
 الـ imports في اتجاه واحد: `src/` → `mygate_ai/`. الـ package مابتعرفش
