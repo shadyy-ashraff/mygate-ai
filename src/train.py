@@ -1,22 +1,22 @@
 """
-train.py — الـ split + بناء الموديل + التدريب، والربط بين كل خطوات الـ pipeline.
+train.py — the split + building the model + training, and wiring all pipeline steps together.
 
-⬅️ متنقول من: Cell 21 (stratified split) + Cell 39 (Random Forest).
+⬅️ Ported from: Cell 21 (stratified split) + Cell 39 (Random Forest).
 
-اللي **ما**اتنقلش من النوت‑بوك (§8):
-  بند ١ — cuML (Cell 35/39) → sklearn بس، الـ VM مفيهاش GPU.
-  بند ٣ — Cell 23 (StandardScaler) اتشال خالص، الـ tree models مش بتتأثر بالـ scaling.
-  بند ٤ — الـ median imputation اللي كان على الداتا كلها قبل الـ split (Cell 17)
-          بقى SimpleImputer **جوا** الـ Pipeline → الـ test مش بيسرّب معلومات للـ train.
-  بند ٦ — مفيش LabelEncoder بـ 15 class، الـ labels ٤ strings من config.label_map.
-  بند ٩ — مفيش SMOTE، بدله class_weight="balanced_subsample".
+What was **not** ported from the notebook (§8):
+  item 1 — cuML (Cell 35/39) → sklearn only, the VM has no GPU.
+  item 3 — Cell 23 (StandardScaler) removed entirely; tree models are not affected by scaling.
+  item 4 — the median imputation that ran on all data before the split (Cell 17)
+          is now a SimpleImputer **inside** the Pipeline → the test set leaks nothing into training.
+  item 6 — no LabelEncoder over 15 classes; labels are 4 strings from config.label_map.
+  item 9 — no SMOTE; class_weight="balanced_subsample" instead.
 
 CLI:
-    python -m src.train                  # الداتا كلها  → models/v1/  + data/clean.parquet
-    python -m src.train --nrows 20000    # عيّنة عشوائية → models/smoke/ + data/smoke_*
-    python -m src.train --no-cache       # يتجاهل الـ parquet cache ويعيد التحميل
+    python -m src.train                  # all data      → models/v1/  + data/clean.parquet
+    python -m src.train --nrows 20000    # random sample → models/smoke/ + data/smoke_*
+    python -m src.train --no-cache       # ignore the parquet cache and reload
 
-الـ smoke run معزول تماماً: مساراته كلها مختلفة، ومابيعملش golden test set.
+The smoke run is fully isolated: all its paths are different, and it never builds a golden test set.
 """
 
 from __future__ import annotations
@@ -45,14 +45,14 @@ def load_config(path: str = "config.yaml") -> dict:
 
 
 # ---------------------------------------------------------------------
-# 1) تجهيز الداتا: load → map_labels → clean  (+ cache)
+# 1) Prepare the data: load → map_labels → clean  (+ cache)
 # ---------------------------------------------------------------------
 def smoke_cfg(cfg: dict, nrows: int) -> dict:
-    """نسخة من الـ config كل مساراتها معزولة عن التشغيلة الحقيقية.
+    """A copy of the config with every path isolated from the real run.
 
-    أي حاجة بـ --nrows لازم ماتقربش من data/clean.parquet ولا data/test_v1.parquet
-    ولا models/<version>/ — لأن عيّنة صغيرة لو دَعَست على دول، التدريب الكامل
-    هيلاقي cache قديم أو golden test set مبني على 160 ألف صف بدل 2.8 مليون.
+    Anything run with --nrows must never touch data/clean.parquet, data/test_v1.parquet
+    or models/<version>/ — if a small sample overwrote those, full training would
+    find a stale cache or a golden test set built from 160K rows instead of 2.8M.
     """
     return {
         **cfg,
@@ -70,11 +70,11 @@ def prepare(
     use_cache: bool = True,
     random_sample: bool = False,
 ) -> pd.DataFrame:
-    """الداتا بعد التنظيف. بيتحفظ في parquet وبيتعاد استخدامه لو موجود (§7).
+    """Data after cleaning. Saved as parquet and reused if it exists (§7).
 
-    random_sample: ياخد nrows صف **عشوائي** من كل ملف بدل أول nrows صف.
-    لازم للـ smoke run — الهجمات في CIC-IDS2017 بتحصل آخر اليوم، فأول
-    الصفوف كلها benign تقريباً وأول 20 ألف صف بيدّوا 2 portscan بس.
+    random_sample: take nrows **random** rows from each file instead of the first nrows.
+    Required for the smoke run — attacks in CIC-IDS2017 happen late in the day, so the first
+    rows are almost all benign and the first 20K rows contain only 2 portscan flows.
     """
     path = cfg["paths"]["cache"]
     if use_cache and os.path.exists(path):
@@ -96,20 +96,20 @@ def prepare(
 
 
 # ---------------------------------------------------------------------
-# 2) الـ split  (Cell 21) + الـ golden test set
+# 2) The split  (Cell 21) + the golden test set
 # ---------------------------------------------------------------------
 def _row_keys(df: pd.DataFrame, feats: list[str]) -> pd.Series:
-    """بصمة لكل صف (features + label).
+    """A fingerprint per row (features + label).
 
-    بنستخدمها بدل الـ index عشان نعرف صفوف الـ golden test set حتى لو ترتيب
-    الصفوف أو حجم الداتا اتغيّر بين v1 و v2.
+    Used instead of the index so we can find the golden test set rows even if the row
+    order or data size changes between v1 and v2.
     """
     cols = [c for c in feats if c in df.columns] + ["label"]
     return pd.util.hash_pandas_object(df[cols], index=False)
 
 
 def _check_classes(y: pd.Series, cfg: dict) -> None:
-    """رسالة مفهومة بدل ما train_test_split الـ stratified يقع برسالة غامضة."""
+    """A clear message instead of the stratified train_test_split failing with a cryptic one."""
     counts = y.value_counts()
     missing = [c for c in cfg["classes"] if c not in counts.index]
     tiny = counts[counts < 2]
@@ -119,16 +119,16 @@ def _check_classes(y: pd.Series, cfg: dict) -> None:
             f"\nCannot do a stratified split.\n"
             f"  missing classes : {missing or 'none'}\n"
             f"  classes with <2 rows: {tiny.to_dict() or 'none'}\n"
-            f"Hint: لو دي تشغيلة --nrows، كبّر الرقم — العيّنة العشوائية بتحافظ\n"
-            f"      على نسب الـ classes، وأقل class (brute_force ≈ 0.5%) محتاجة\n"
-            f"      عيّنة كبيرة كفاية عشان توصل صفّين على الأقل."
+            f"Hint: if this is a --nrows run, use a bigger number — the random sample keeps\n"
+            f"      the class ratios, and the smallest class (brute_force ≈ 0.5%) needs\n"
+            f"      a sample big enough to get at least two rows."
         )
 
 
 def split(df: pd.DataFrame, cfg: dict, golden_path: str | None = None):
-    """Stratified split (Cell 21). لو golden_path موجود بيتعاد استخدامه كـ test set.
+    """Stratified split (Cell 21). If golden_path exists it is reused as the test set.
 
-    بيرجّع X_train, X_test, y_train, y_test.
+    Returns X_train, X_test, y_train, y_test.
     """
     feats = feature_list(cfg)
     _check_classes(df["label"], cfg)
@@ -140,8 +140,8 @@ def split(df: pd.DataFrame, cfg: dict, golden_path: str | None = None):
         print(f"\nGolden test set reused: {golden_path}  ({len(golden):,} rows)")
         print(f"  matched in current data: {matched:,}")
         if matched < 0.5 * len(golden):
-            print("  ⚠️  أقل من نص الـ golden set اتلاقى في الداتا الحالية —")
-            print("      يعني الداتا اتغيّرت. المقارنة مع النسخ القديمة مش عادلة.")
+            print("  ⚠️  Less than half of the golden set was found in the current data —")
+            print("      so the data has changed. Comparison with older versions is not fair.")
         df_train, df_test = df[~in_test], golden
     else:
         df_train, df_test = train_test_split(
@@ -156,9 +156,9 @@ def split(df: pd.DataFrame, cfg: dict, golden_path: str | None = None):
             df_test[keep].to_parquet(golden_path, index=False)
             print(f"\nGolden test set saved → {golden_path}  ({len(df_test):,} rows)")
 
-    # float32: الـ RandomForest بيحوّل الـ input لـ float32 جوّاه على أي حال،
-    # فالتحويل بدري بيوفّر نسخة float64 بحجم ~1.4 GB على الداتا الكاملة
-    # من غير ما يغيّر ولا رقم في نتيجة الموديل.
+    # float32: RandomForest converts its input to float32 internally anyway,
+    # so converting early saves a ~1.4 GB float64 copy on the full data
+    # without changing a single number in the model's output.
     X_train = build_features(df_train, cfg).astype("float32")
     X_test = build_features(df_test, cfg).astype("float32")
     y_train, y_test = df_train["label"], df_test["label"]
@@ -178,24 +178,24 @@ def split(df: pd.DataFrame, cfg: dict, golden_path: str | None = None):
 
 
 # ---------------------------------------------------------------------
-# 3) الموديل  (Cell 39 / 41)
+# 3) The model  (Cell 39 / 41)
 # ---------------------------------------------------------------------
 def build_model(cfg: dict) -> Pipeline:
-    """Pipeline([impute, model]) — الـ imputer جوّه عشان يتطبّق بنفس الطريقة لايف."""
+    """Pipeline([impute, model]) — the imputer lives inside so it is applied the same way live."""
     mcfg = cfg["model"]
     params = dict(mcfg.get("params") or {})
     params.setdefault("random_state", cfg["random_state"])
 
     if mcfg["type"] == "random_forest":
-        # §8 بند ٩ — بدل SMOTE. مش في config.yaml عشان ميتغيّرش بالغلط.
+        # §8 item 9 — replaces SMOTE. Not in config.yaml so it can't be changed by accident.
         params.setdefault("class_weight", "balanced_subsample")
         est = RandomForestClassifier(**params)
     elif mcfg["type"] == "xgboost":
-        # ملاحظة: XGBClassifier عايز labels أرقام 0..n-1 مش strings، فمحتاج
-        # LabelEncoder جوا الـ Pipeline — مش متعمول في v1.
+        # Note: XGBClassifier needs numeric labels 0..n-1, not strings, so it needs
+        # a LabelEncoder inside the Pipeline — not implemented in v1.
         raise SystemExit(
-            "xgboost مش موصّل في v1. لو عايزه: شيل التعليق من xgboost في "
-            "requirements.txt وضيف encoding للّـ labels هنا."
+            "xgboost is not wired up in v1. To use it: uncomment xgboost in "
+            "requirements.txt and add label encoding here."
         )
     else:
         raise ValueError(f"Unknown model type: {mcfg['type']!r}")
@@ -204,7 +204,7 @@ def build_model(cfg: dict) -> Pipeline:
 
 
 # ---------------------------------------------------------------------
-# 4) التشغيل الكامل
+# 4) Full run
 # ---------------------------------------------------------------------
 def train(
     cfg: dict,
@@ -216,18 +216,18 @@ def train(
     smoke = nrows is not None
     if smoke:
         cfg = smoke_cfg(cfg, nrows)
-        print(f"=== SMOKE RUN — عيّنة عشوائية {nrows:,} صف/ملف ===")
+        print(f"=== SMOKE RUN — random sample of {nrows:,} rows/file ===")
         print(f"    cache  → {cfg['paths']['cache']}")
         out = os.path.join(cfg["paths"]["models_dir"], cfg["model_version"])
         print(f"    output → {out}/")
         print(
-            "    مش بيلمس data/clean.parquet ولا data/test_v1.parquet "
-            "ولا النسخة المتسلّمة\n"
+            "    does not touch data/clean.parquet, data/test_v1.parquet "
+            "or the delivered model\n"
         )
 
     df = prepare(cfg, nrows=nrows, use_cache=use_cache, random_sample=smoke)
 
-    # الـ golden test set للتشغيلة الكاملة بس — عشان النسخ الجاية تتقارن عليه بعدل
+    # The golden test set is for the full run only — so future versions are compared fairly
     golden = (
         None
         if smoke
@@ -253,7 +253,7 @@ def train(
         "sources": [n for n, s in cfg["sources"].items() if s.get("enabled")],
         "nrows": nrows,
     }
-    # الـ smoke بيكتب فوق نفسه دايماً — هو مخرجات تطوير، الحماية على v1
+    # Smoke always overwrites itself — it is development output; the protection is for v1
     out_dir = export(model, cfg, metrics, info, force=force or smoke)
     print(f"\n✅ Exported → {out_dir}")
     return model, metrics, out_dir
@@ -266,18 +266,18 @@ def main() -> None:
         "--nrows",
         type=int,
         default=None,
-        help="عيّنة عشوائية N صف من كل ملف — تجربة سريعة معزولة في "
-        "data/smoke_* و models/smoke/",
+        help="random sample of N rows from each file — a quick isolated run in "
+        "data/smoke_* and models/smoke/",
     )
     ap.add_argument(
         "--no-cache",
         action="store_true",
-        help="يتجاهل الـ parquet cache ويعيد التحميل والتنظيف",
+        help="ignore the parquet cache and reload + re-clean",
     )
     ap.add_argument(
         "--force",
         action="store_true",
-        help="يكتب فوق models/<model_version>/ الموجود — للتطوير بس",
+        help="overwrite an existing models/<model_version>/ — for development only",
     )
     args = ap.parse_args()
 

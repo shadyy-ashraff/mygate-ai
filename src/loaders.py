@@ -1,9 +1,9 @@
 """
-loaders.py — تحميل الداتا من كل مصدر → DataFrame بالأسماء الموحّدة.
+loaders.py — load data from each source → DataFrame with canonical names.
 
-متنقول من Cell 5 (kagglehub + قراءة الـ CSV) + خلية تقليل الرام.
-كل مصدر ليه function، وكلهم بيرجّعوا نفس الشكل:
-    أعمدة canonical + عمود label + عمود source
+Ported from notebook Cell 5 (kagglehub + reading the CSVs) + the memory-reduction cell.
+Each source has its own function, and all of them return the same shape:
+    canonical columns + a label column + a source column
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from mygate_ai.schema import to_canonical
 
 
 def _find_csv_dir(path: str) -> str:
-    """يدوّر على الفولدر اللي فيه الـ CSV (لو kagglehub نزّلها جوا فولدر فرعي)."""
+    """Find the folder that holds the CSVs (in case kagglehub put them in a subfolder)."""
     for root, _dirs, files in os.walk(path):
         if any(f.endswith(".csv") for f in files):
             return root
@@ -24,7 +24,7 @@ def _find_csv_dir(path: str) -> str:
 
 
 def _shrink(df: pd.DataFrame) -> pd.DataFrame:
-    """تقليل الرام للنص تقريباً (float64 → float32، int64 → أصغر نوع مناسب)."""
+    """Cut memory roughly in half (float64 → float32, int64 → smallest fitting type)."""
     for col in df.select_dtypes("float64").columns:
         df[col] = df[col].astype("float32")
     for col in df.select_dtypes("int64").columns:
@@ -39,14 +39,14 @@ def load_cic2017(
     random_state: int = 42,
 ) -> pd.DataFrame:
     """
-    CIC-IDS2017: لو src_cfg فيه "path" بيقرا من الجهاز، غير كده بينزّل بـ kagglehub.
+    CIC-IDS2017: if src_cfg has "path", read from disk; otherwise download with kagglehub.
 
-    nrows : أول N صف من كل ملف — سريع، **بس متحيّز**. ملفات CIC-IDS2017
-            مترتّبة زمنياً والهجمات بتحصل آخر اليوم، فأول الصفوف كلها benign
-            تقريباً (PortScan أول ظهور كثيف ليها بعد الصف ~50,000).
-    sample: N صف **عشوائي** من كل ملف. بيقرا الملف كله الأول فبياخد وقت أطول،
-            لكن العيّنة بتمثّل الـ classes الأربعة زي الداتا الأصلية.
-            ده اللي الـ smoke run بيستخدمه.
+    nrows : first N rows of each file — fast, **but biased**. CIC-IDS2017 files
+            are in time order and the attacks happen late in the day, so the first rows
+            are almost all benign (PortScan first appears densely after row ~50,000).
+    sample: N **random** rows from each file. Reads the whole file first, so it is slower,
+            but the sample represents the four classes like the original data.
+            This is what the smoke run uses.
     """
     if src_cfg.get("path") and os.path.isdir(src_cfg["path"]):
         base = src_cfg["path"]
@@ -63,7 +63,7 @@ def load_cic2017(
             part = pd.read_csv(os.path.join(base, f), low_memory=False)
             n_read = len(part)
             part = part.sample(n=min(sample, n_read), random_state=random_state)
-            print(f"Sampled {f}: {part.shape}  (من {n_read:,} صف)")
+            print(f"Sampled {f}: {part.shape}  (from {n_read:,} rows)")
         else:
             part = pd.read_csv(os.path.join(base, f), nrows=nrows, low_memory=False)
             print(f"Loaded {f}: {part.shape}")
@@ -102,9 +102,9 @@ def load_all(
     sample: int | None = None,
     random_state: int = 42,
 ) -> pd.DataFrame:
-    """يحمّل كل المصادر اللي enabled في config.yaml ويدمجهم.
+    """Load every source enabled in config.yaml and concatenate them.
 
-    nrows / sample: شوف load_cic2017 — الأولى أول N صف، التانية N عشوائي.
+    nrows / sample: see load_cic2017 — the first takes the first N rows, the second N random rows.
     """
     parts = [
         load_source(name, s, nrows=nrows, sample=sample, random_state=random_state)

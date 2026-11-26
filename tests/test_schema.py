@@ -1,4 +1,4 @@
-"""يتأكد إن خريطة CIC-IDS2017 والـ live متطابقين — لو اتكسر، التدريب والـ live مش هيتفقوا."""
+"""Check that the CIC-IDS2017 and live column maps agree — if this breaks, training and live disagree."""
 
 from mygate_ai.schema import CANONICAL_FEATURES, CIC2017, LIVE
 

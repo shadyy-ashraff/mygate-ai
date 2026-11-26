@@ -1,32 +1,32 @@
 """
-inference.py — اللي التيم بيستدعيه جوا core/controllers/ai_engine.py
+inference.py — what the team calls from core/controllers/ai_engine.py
 
-⚠️ استوردوا من `mygate_ai` مباشرةً، مش من `mygate_ai.inference`:
+⚠️ Import from `mygate_ai` directly, not from `mygate_ai.inference`:
        from mygate_ai import load, predict, predict_many
-   الموديول ده تفصيلة تنفيذ. (كان اسمه predict.py، واتغيّر لأن
-   `mygate_ai.predict` كان بيبقى غامض — الدالة والموديول بنفس الاسم.)
+   this module is an implementation detail. (It used to be predict.py; renamed
+   because `mygate_ai.predict` was ambiguous — a function and a module with the same name.)
 
-العقد (نهائي — متفق عليه مع التيم، §3):
+The contract (final — agreed with the team, §3):
     predict(flow_dict) -> {
         "is_attack": bool,
-        "probability": float,          # احتمال إن الـ flow هجوم (0..1)
+        "probability": float,          # probability that the flow is an attack (0..1)
         "attack_type": "benign" | "portscan" | "brute_force" | "dos",
         "model_version": str,
     }
-    predict_many([flow, ...]) -> [ نفس العقد لكل flow، بنفس الترتيب ]
+    predict_many([flow, ...]) -> [ the same contract per flow, in the same order ]
 
-الـ flow_dict جاي من cicflowmeter==0.2.0 زي ما هو (أسماء live snake_case).
-مفاتيح زيادة (src_ip, dst_ip, timestamp, ...) بتتجاهل.
-مفاتيح ناقصة → NaN → الـ imputer بيملّيها بالـ median بتاع التدريب.
+flow_dict is a raw flow from cicflowmeter, as-is (live snake_case names).
+Extra keys (src_ip, dst_ip, timestamp, ...) are ignored.
+Missing keys → NaN → the imputer fills them with the training median.
 
-الاستخدام:
+Usage:
     from mygate_ai import load, predict, predict_many
-    load()                       # مرة واحدة وقت الـ startup
-    predict(flow)                # flow واحد
-    predict_many(flows)          # دفعة — أسرع بكتير وقت الـ DoS
+    load()                       # once, at startup
+    predict(flow)                # one flow
+    predict_many(flows)          # a batch — much faster during a DoS
 
-⚠️ كل القيم الراجعة **أنواع Python عادية** مش numpy — لأن psycopg2
-   مابيعرفش يحوّل numpy.float64 وبيرمي "can't adapt type numpy.float64".
+⚠️ All returned values are **plain Python types**, not numpy — because psycopg2
+   cannot adapt numpy.float64 and raises "can't adapt type numpy.float64".
 """
 
 from __future__ import annotations
@@ -43,14 +43,14 @@ from .schema import to_canonical
 
 BENIGN = "benign"
 
-# النسخة اللي بتتشحن جوا الـ package. لتغييرها: صدّر النسخة الجديدة في
-# mygate_ai/models/<v>/ وغيّر السطر ده.
+# The version shipped inside the package. To change it: export the new version to
+# mygate_ai/models/<v>/ and change this line.
 DEFAULT_MODEL_VERSION = "v1"
 DEFAULT_MODEL_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "models", DEFAULT_MODEL_VERSION
 )
 
-# حالة محمّلة مرة واحدة وقت الـ startup — مش مع كل flow
+# State loaded once at startup — not per flow
 _model = None
 _schema: dict | None = None
 _features: list[str] = []
@@ -69,32 +69,32 @@ def _sha256(path: str) -> str:
 
 
 class ModelIntegrityError(RuntimeError):
-    """model.pkl مش مطابق للـ sha256 اللي في schema.json."""
+    """model.pkl does not match the sha256 in schema.json."""
 
 
 class SklearnVersionError(RuntimeError):
-    """نسخة scikit-learn مختلفة عن اللي الموديل اتصدّر بيها."""
+    """The scikit-learn version differs from the one the model was exported with."""
 
 
 def load(model_dir: str | None = None, strict: bool = True) -> None:
-    """يحمّل model.pkl + schema.json **مرة واحدة** وقت الـ startup.
+    """Load model.pkl + schema.json **once**, at startup.
 
-    model_dir: لو None بياخد النسخة المشحونة جوا الـ package
-               (mygate_ai/models/v1 — نسبي لـ __file__).
-    strict   : True (الافتراضي) → أي فحص بيفشل بيرمي exception والموديل
-               مابيتحمّلش خالص. False → تحذير بس، **للتطوير بس**.
+    model_dir: if None, uses the version shipped inside the package
+               (mygate_ai/models/v1 — relative to __file__).
+    strict   : True (default) → any failed check raises and the model is
+               not loaded at all. False → warning only, **for development only**.
 
-    الفحوص:
-      1. sha256 بتاع model.pkl — بيتحسب على bytes الملف **قبل** joblib.load.
-         ده مش تحقّق شكلي: الـ pickle بيشغّل كود وقت الفك، فملف متبدّل =
-         تنفيذ كود عشوائي بصلاحيات الـ appliance. الفحص الأول يعني
-         إننا مابنفكّش ملف محصلناش عليه ثقة.
-      2. نسخة scikit-learn — الـ pickle مش مضمون بين النسخ، وممكن يتفك
-         ويدّي نتايج مختلفة بصمت (§3).
+    Checks:
+      1. sha256 of model.pkl — computed on the file bytes **before** joblib.load.
+         This is not a formality: unpickling runs code, so a tampered file =
+         arbitrary code execution with the appliance's privileges. The first check
+         means we never unpickle a file we have no reason to trust.
+      2. scikit-learn version — pickles are not guaranteed across versions and may
+         load fine yet silently give different results (§3).
 
-    الـ appliance مش هيقف لو ده رمى: الباك‑إند بيمسك الـ exception،
-    AIEngine.status() بترجّع loaded=False والسبب، و Suricata بيفضل شغال.
-    شوف INTEGRATION.md.
+    The appliance does not stop if this raises: the backend catches the exception,
+    AIEngine.status() returns loaded=False with the reason, and Suricata keeps running.
+    See INTEGRATION.md.
     """
     global _model, _schema, _features, _base_features
     global _classes, _benign_index, _model_version
@@ -107,49 +107,49 @@ def load(model_dir: str | None = None, strict: bool = True) -> None:
 
     schema_path = os.path.join(model_dir, "schema.json")
     if not os.path.isfile(schema_path):
-        raise FileNotFoundError(f"مفيش schema.json في {model_dir}")
+        raise FileNotFoundError(f"No schema.json in {model_dir}")
     with open(schema_path, encoding="utf-8") as fh:
         schema = json.load(fh)
 
     model_path = os.path.join(model_dir, schema.get("model_file", "model.pkl"))
     if not os.path.isfile(model_path):
-        raise FileNotFoundError(f"مفيش {model_path}")
+        raise FileNotFoundError(f"{model_path} not found")
 
     def _fail(exc: Exception, msg: str) -> None:
         if strict:
             raise exc
         print(f"⚠️  [mygate_ai] strict=False — {msg}")
 
-    # --- فحص 1: سلامة الملف، قبل أي joblib.load ---
+    # --- Check 1: file integrity, before any joblib.load ---
     expected = schema.get("model_file_sha256")
     if expected:
         actual = _sha256(model_path)
         if actual != expected:
             detail = (
-                f"sha256 بتاع {model_path} مش مطابق لـ schema.json.\n"
-                f"  المتوقّع: {expected}\n"
-                f"  الفعلي  : {actual}\n"
-                f"الملف اتغيّر بعد الـ export. الـ pickle بيشغّل كود وقت الفك، "
-                f"فمش هنفكّه.\n"
-                f"الحل: هات model.pkl الأصلي، أو load(..., strict=False) "
-                f"للتطوير بس."
+                f"sha256 of {model_path} does not match schema.json.\n"
+                f"  expected: {expected}\n"
+                f"  actual  : {actual}\n"
+                f"The file changed after export. Unpickling runs code, "
+                f"so we will not load it.\n"
+                f"Fix: restore the original model.pkl, or use load(..., strict=False) "
+                f"for development only."
             )
             _fail(ModelIntegrityError(detail), detail)
     elif strict:
         raise ModelIntegrityError(
-            f"{schema_path} مفيهوش model_file_sha256 — مش قادرين نتحقّق من "
-            f"سلامة model.pkl. أعد الـ export، أو load(..., strict=False)."
+            f"{schema_path} has no model_file_sha256 — cannot verify the integrity "
+            f"of model.pkl. Re-export, or use load(..., strict=False)."
         )
 
-    # --- فحص 2: نسخة sklearn ---
+    # --- Check 2: sklearn version ---
     want = schema.get("sklearn_version")
     if want and want != sklearn.__version__:
         detail = (
-            f"نسخة scikit-learn مختلفة: عندك {sklearn.__version__}، "
-            f"الموديل اتصدّر بـ {want}.\n"
-            f"الـ pickle مش مضمون بين النسخ — ممكن يتفك ويدّي نتايج مختلفة "
-            f"بصمت.\n"
-            f"الحل: pip install scikit-learn=={want}"
+            f"scikit-learn version mismatch: you have {sklearn.__version__}, "
+            f"the model was exported with {want}.\n"
+            f"Pickles are not guaranteed across versions — it may load and give different "
+            f"results silently.\n"
+            f"Fix: pip install scikit-learn=={want}"
         )
         _fail(SklearnVersionError(detail), detail)
 
@@ -158,8 +158,8 @@ def load(model_dir: str | None = None, strict: bool = True) -> None:
     _model = model
     _schema = schema
     _features = list(schema["features"])
-    # الـ features المحسوبة موجودة خلاص في schema["features"]، فبنشيلها من
-    # القايمة الأساسية عشان feature_list() ماتضيفهاش تاني
+    # Engineered features are already in schema["features"], so remove them from
+    # the base list so feature_list() doesn't add them twice
     _base_features = [f for f in _features if f not in ENGINEERED]
     _classes = [str(c) for c in model.classes_]
     _benign_index = _classes.index(BENIGN)
@@ -174,41 +174,41 @@ def load(model_dir: str | None = None, strict: bool = True) -> None:
 def _require_loaded() -> None:
     if _model is None:
         raise RuntimeError(
-            "الموديل مش محمّل. نادِ load() مرة واحدة وقت الـ startup "
-            "قبل أول predict()/predict_many().\n"
-            "في الباك‑إند: جوا core/controllers/ai_engine.py عند تشغيل التطبيق، "
-            "مش جوا كل request."
+            "Model not loaded. Call load() once at startup "
+            "before the first predict()/predict_many().\n"
+            "In the backend: inside core/controllers/ai_engine.py when the app starts, "
+            "not on every request."
         )
 
 
 def _build_X(flows: list[dict]) -> pd.DataFrame:
-    """flows خام → X جاهزة للموديل، بنفس مسار التدريب بالظبط (§7).
+    """Raw flows → X ready for the model, via exactly the training path (§7).
 
-    to_canonical(live) بيشيل المفاتيح الزيادة (src_ip, timestamp, ...)،
-    و build_features بيرتّب الأعمدة ويملّي الناقصة NaN.
+    to_canonical(live) drops extra keys (src_ip, timestamp, ...),
+    and build_features orders the columns and fills missing ones with NaN.
     """
     raw = pd.DataFrame(flows)
     df = to_canonical(raw, "live")
 
     cfg = {"features": _base_features, "drop_features": []}
     X = build_features(df, cfg)
-    X = X.reindex(columns=_features)  # الترتيب بالظبط زي التدريب
+    X = X.reindex(columns=_features)  # exactly the training order
 
-    # القيم ممكن توصل strings لو الـ flow عدّى بـ JSON/HTTP
+    # Values may arrive as strings if the flow went through JSON/HTTP
     for col in X.columns:
         X[col] = pd.to_numeric(X[col], errors="coerce")
 
-    # Inf → NaN — نفس اللي clean() بيعمله في التدريب
+    # Inf → NaN — same as clean() does during training
     X = X.replace([np.inf, -np.inf], np.nan)
     return X.astype("float32")
 
 
 def predict_many(flows: list[dict]) -> list[dict]:
-    """نفس العقد لكل flow، **بنفس ترتيب المدخلات**.
+    """The same contract for every flow, **in input order**.
 
-    استخدمها وقت الـ DoS: الآلاف من الـ flows في الثانية. الفرق ضخم —
-    تكلفة sklearn الثابتة (~3ms) بتتدفع مرة واحدة للدفعة كلها بدل مرة
-    لكل flow (شوف throughput في metrics.json).
+    Use it during a DoS: thousands of flows per second. The difference is huge —
+    sklearn's fixed overhead (~3 ms) is paid once for the whole batch instead of
+    once per flow (see throughput in metrics.json).
     """
     _require_loaded()
     if not flows:
@@ -235,5 +235,5 @@ def predict_many(flows: list[dict]) -> list[dict]:
 
 
 def predict(flow: dict) -> dict:
-    """flow واحد. نفس منطق predict_many بالظبط — مفيش مسار تاني يختلف عنه."""
+    """One flow. Exactly the same logic as predict_many — no separate code path."""
     return predict_many([flow])[0]

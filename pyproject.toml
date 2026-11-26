@@ -1,7 +1,7 @@
-# بناء wheel لـ mygate_ai — ده اللي بيتسلّم للباك‑إند.
+# Builds the mygate_ai wheel — this is what gets delivered to the backend.
 #   .venv\Scripts\python -m build --wheel
 #   pip install dist\mygate_ai-1.0.0-py3-none-any.whl
-# الموديل نفسه جوا الـ wheel كـ package data، فـ load() بتشتغل من غير مسار.
+# The model itself ships inside the wheel as package data, so load() needs no path.
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -10,16 +10,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mygate-ai"
 version = "1.0.0"
-description = "MyGate — تصنيف الـ network flows (CICFlowMeter) لـ benign/portscan/brute_force/dos"
+description = "MyGate — classify network flows (CICFlowMeter) as benign/portscan/brute_force/dos"
 readme = "INTEGRATION.md"
-# مطابقة python_version في mygate_ai/models/v1/schema.json (3.12.10).
-# مضيّقة عن قصد: الـ model.pkl معمول بـ pickle، فنفس منطق تثبيت نسخ
-# المكتبات ينطبق على نسخة Python نفسها.
+# Matches python_version in mygate_ai/models/v1/schema.json (3.12.10).
+# Deliberately narrow: model.pkl is a pickle, so the same reasoning that pins
+# library versions also applies to the Python version itself.
 requires-python = ">=3.12,<3.13"
 
-# النسخ دي **مثبّتة بالظبط** زي ما هي في mygate_ai/models/v1/schema.json.
-# الـ model.pkl معمول بـ pickle: أي نسخة مختلفة ممكن تفك الملف وتدّي
-# نتايج مختلفة بصمت، وعشان كده load(strict=True) بترفض التشغيل.
+# These versions are **pinned exactly** as in mygate_ai/models/v1/schema.json.
+# model.pkl is a pickle: a different version may unpickle it and silently give
+# different results, which is why load(strict=True) refuses to run.
 dependencies = [
     "scikit-learn==1.6.1",
     "pandas==3.0.6",
@@ -28,10 +28,10 @@ dependencies = [
 ]
 
 [tool.setuptools]
-# mygate_ai بس — كود التدريب في src/ مش بيتشحن
+# mygate_ai only — the training code in src/ is not shipped
 packages = ["mygate_ai"]
 
 [tool.setuptools.package-data]
-# النسخة المشحونة بس، مش كل الفولدرات اللي في mygate_ai/models/.
-# لازم تطابق DEFAULT_MODEL_VERSION في mygate_ai/inference.py.
+# Only the shipped model version, not every folder in mygate_ai/models/.
+# Must match DEFAULT_MODEL_VERSION in mygate_ai/inference.py.
 mygate_ai = ["models/v1/*"]

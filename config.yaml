@@ -1,27 +1,27 @@
 # =====================================================================
-# MyGate AI — ملف الإعدادات
-# أي حاجة ممكن تتغيّر بين نسخة والتانية (v1, v2...) مكانها هنا بس.
+# MyGate AI — configuration
+# Anything that may change between model versions (v1, v2, ...) lives here only.
 # =====================================================================
 
 model_version: "v1"
 
-# ---- مصادر الداتا ---------------------------------------------------
-# لإضافة داتاست جديدة: ضيف مصدر هنا + خريطة أعمدة له في src/schema.py
+# ---- Data sources ---------------------------------------------------
+# To add a dataset: add a source here + a column map for it in mygate_ai/schema.py
 sources:
   cic2017:
     kaggle_id: "chethuhn/network-intrusion-dataset"
-    path: "../archive"    # لو الفولدر موجود بيقرا منه، غير كده (Colab) بينزّل بـ kagglehub
+    path: "../archive"    # read from this folder if it exists, otherwise (Colab) download with kagglehub
     enabled: true
-  # cic2018:            # v2 — لزيادة brute_force
+  # cic2018:            # v2 — more brute_force samples
   #   kaggle_id: "solarmainframe/ids-intrusion-csv"
   #   enabled: false
-  # lab:                # v2 — ترافيك معمل MyGate (cicflowmeter)
+  # lab:                # v2 — MyGate lab traffic (cicflowmeter)
   #   path: "data/lab/"
   #   enabled: false
 
-# ---- خريطة الـ labels ------------------------------------------------
-# الاسم الأصلي في الداتاست  ->  الـ class بتاعتنا (العقد مع التيم)
-# أي label مش موجودة هنا بتتشال من التدريب (Web Attacks, Bot, ...)
+# ---- Label map ------------------------------------------------------
+# original dataset label  ->  our class (the contract with the team)
+# Any label not listed here is dropped from training (Web Attacks, Bot, ...)
 classes: [benign, portscan, brute_force, dos]
 
 label_map:
@@ -35,20 +35,20 @@ label_map:
   DoS GoldenEye: dos
   DoS slowloris: dos
   DoS Slowhttptest: dos
-  # --- CIC-IDS2018 (v2) — أسماؤها مختلفة ---
+  # --- CIC-IDS2018 (v2) — different names ---
   # Benign: benign
   # FTP-BruteForce: brute_force
   # SSH-Bruteforce: brute_force
   # DDoS attacks-LOIC-HTTP: dos
   # DoS attacks-Hulk: dos
 
-# ---- الـ features ----------------------------------------------------
-# بالأسماء الموحّدة (canonical) اللي في src/schema.py
-# "all" = كل الـ features المشتركة بين التدريب والـ live
+# ---- Features -------------------------------------------------------
+# Canonical names, as defined in mygate_ai/schema.py
+# "all" = every feature shared by training and live
 features: all
 drop_features:
-  - fwd_header_len_dup      # عمود مكرر في CIC-IDS2017 (Fwd Header Length.1)
-  # الـ 8 أعمدة الثابتة (zero-variance) اللي Cell 17 لقاها في CIC-IDS2017:
+  - fwd_header_len_dup      # duplicate column in CIC-IDS2017 (Fwd Header Length.1)
+  # The 8 constant (zero-variance) columns that Cell 17 found in CIC-IDS2017:
   - bwd_psh_flags
   - bwd_urg_flags
   - fwd_byts_b_avg
@@ -57,11 +57,11 @@ drop_features:
   - bwd_byts_b_avg
   - bwd_pkts_b_avg
   - bwd_blk_rate_avg
-  # - dst_port              # البند ١٢: نجرّب من غيره
-  # - init_fwd_win_byts     # البند ١٢
-  # - init_bwd_win_byts     # البند ١٢
+  # - dst_port              # item 12: try without it
+  # - init_fwd_win_byts     # item 12
+  # - init_bwd_win_byts     # item 12
 
-# ---- التدريب ---------------------------------------------------------
+# ---- Training -------------------------------------------------------
 random_state: 42
 test_size: 0.3
 
@@ -73,9 +73,9 @@ model:
     min_samples_leaf: 10
     n_jobs: -1
 
-# ---- المسارات --------------------------------------------------------
+# ---- Paths ----------------------------------------------------------
 paths:
-  cache: "data/clean.parquet"     # الداتا بعد التنظيف (البند ٧ من الـ base)
-  # جوا الـ package عشان load() تلاقي الموديل من غير مسار،
-  # والـ wheel ياخده كـ package data
+  cache: "data/clean.parquet"     # data after cleaning (item 7 of the base plan)
+  # Inside the package so load() finds the model without a path,
+  # and the wheel picks it up as package data
   models_dir: "mygate_ai/models"

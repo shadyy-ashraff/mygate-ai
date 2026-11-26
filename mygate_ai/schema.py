@@ -1,14 +1,14 @@
 """
-schema.py — الأسماء الموحّدة للـ features + خريطة أعمدة لكل مصدر.
+schema.py — canonical feature names + a column map for each data source.
 
-الفكرة: كل مصدر بيسمّي الأعمدة بطريقته
+The idea: every source names its columns its own way
     CIC-IDS2017 : "Flow Duration"
-    CIC-IDS2018 : "Flow Duration" / "Dst Port" (مختصر)
+    CIC-IDS2018 : "Flow Duration" / "Dst Port" (abbreviated)
     live (VM)   : "flow_duration"   ← cicflowmeter==0.2.0
-فبنحوّل الكل لاسم واحد رسمي (canonical). اخترنا أسماء الـ live نفسها
-كأسماء رسمية، لأن ده اللي الموديل هيشوفه في الـ production.
+so we map them all to one official (canonical) name. We chose the live names
+as the canonical ones, because that is what the model sees in production.
 
-لإضافة داتاست جديدة: ضيف dict جديد في COLUMN_MAPS وخلاص.
+To add a dataset: add a new dict to COLUMN_MAPS and you're done.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from __future__ import annotations
 import pandas as pd
 
 # ---------------------------------------------------------------------
-# CIC-IDS2017 (الأسماء بعد .strip() للمسافات)  ->  canonical
+# CIC-IDS2017 (names after .strip() of spaces)  ->  canonical
 # ---------------------------------------------------------------------
 CIC2017 = {
     "Destination Port": "dst_port",
@@ -74,7 +74,7 @@ CIC2017 = {
     "Average Packet Size": "pkt_size_avg",
     "Avg Fwd Segment Size": "fwd_seg_size_avg",
     "Avg Bwd Segment Size": "bwd_seg_size_avg",
-    "Fwd Header Length.1": "fwd_header_len_dup",  # مكرر — بيتشال من config
+    "Fwd Header Length.1": "fwd_header_len_dup",  # duplicate — dropped via config
     "Fwd Avg Bytes/Bulk": "fwd_byts_b_avg",
     "Fwd Avg Packets/Bulk": "fwd_pkts_b_avg",
     "Fwd Avg Bulk Rate": "fwd_blk_rate_avg",
@@ -101,7 +101,7 @@ CIC2017 = {
 }
 
 # ---------------------------------------------------------------------
-# live — cicflowmeter==0.2.0 على الـ VM. الأسماء هي نفسها الـ canonical.
+# live — cicflowmeter on the VM. These names are the canonical names.
 # ---------------------------------------------------------------------
 LIVE_META = ["src_ip", "dst_ip", "src_port", "protocol", "timestamp"]
 CANONICAL_FEATURES = [
@@ -110,7 +110,7 @@ CANONICAL_FEATURES = [
 LIVE = {name: name for name in CANONICAL_FEATURES}
 
 # ---------------------------------------------------------------------
-# كل المصادر في مكان واحد
+# All sources in one place
 # ---------------------------------------------------------------------
 COLUMN_MAPS = {
     "cic2017": CIC2017,
@@ -120,10 +120,10 @@ COLUMN_MAPS = {
 
 
 def to_canonical(df: pd.DataFrame, source: str) -> pd.DataFrame:
-    """يحوّل أي DataFrame من أي مصدر للأسماء الموحّدة ويشيل الأعمدة الغريبة."""
+    """Convert a DataFrame from any source to canonical names and drop unknown columns."""
     mapping = COLUMN_MAPS[source]
     df = df.copy()
-    df.columns = df.columns.str.strip()  # مسافات CIC-IDS2017
+    df.columns = df.columns.str.strip()  # CIC-IDS2017 has padded column names
     df = df.rename(columns=mapping)
     keep = [c for c in df.columns if c in set(mapping.values())]
     return df[keep]

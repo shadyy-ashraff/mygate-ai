@@ -1,18 +1,18 @@
 """
-evaluate.py — التقييم بمقاييس IDS (مش بمقاييس ML عامة).
+evaluate.py — evaluation with IDS metrics (not generic ML metrics).
 
-⬅️ متنقول من: Cell 46 (المقارنة) + Cell 58 (confusion matrix) + Cell 60
+⬅️ Ported from: Cell 46 (comparison) + Cell 58 (confusion matrix) + Cell 60
    (per-class) + Cell 62 (ROC binary) + Cell 68 (feature importance).
 
-اللي **ما**اتنقلش من النوت‑بوك (§8):
-  بند ٧ — النوت‑بوك كان بيختار أحسن موديل بـ weighted accuracy/F1. ده غلط خطير
-          هنا: الداتا ~98% benign، فموديل بيقول "كله سليم" بياخد 98% accuracy
-          وهو بيفوّت كل الهجمات. القرار عندنا = recall لكل class + FPR + macro-F1.
-  بند ١٠ — Cell 62 كان بيكتب `predict_proba(...).values[:, 0]` — ده كان
-          cuDF DataFrame من cuML. sklearn بيرجّع numpy، فمفيش .values،
-          والـ index بتاع benign بنجيبه بالاسم مش برقم ثابت.
+What was **not** ported from the notebook (§8):
+  item 7 — the notebook picked the best model by weighted accuracy/F1. That is badly wrong
+          here: the data is ~98% benign, so a model that says "all clean" scores 98% accuracy
+          while missing every attack. Our criteria = per-class recall + FPR + macro-F1.
+  item 10 — Cell 62 used `predict_proba(...).values[:, 0]` — that was a
+          cuDF DataFrame from cuML. sklearn returns numpy, so there is no .values,
+          and the benign index is looked up by name, not by a fixed number.
 
-الـ dict اللي بيرجع من هنا هو نفسه اللي بيتكتب في models/<v>/metrics.json.
+The dict returned from here is exactly what gets written to models/<v>/metrics.json.
 """
 
 from __future__ import annotations
@@ -28,23 +28,23 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-BENIGN = "benign"  # لازم يطابق config.classes[0] والعقد في §3
+BENIGN = "benign"  # must match config.classes[0] and the contract in §3
 
-# عتبات الـ auto-block اللي التيم هيختار منها في core/decision.py
+# Auto-block thresholds the team will choose from in core/decision.py
 THRESHOLDS = (0.5, 0.7, 0.8, 0.9, 0.95, 0.99)
 
 
 def threshold_table(
     y_true: np.ndarray, p_attack: np.ndarray, thresholds=THRESHOLDS
 ) -> list[dict]:
-    """لكل عتبة على probability: كام هجمة بتتمسك وكام flow سليم بيتقفل غلط.
+    """For each probability threshold: how many attacks are caught and how many clean flows are wrongly blocked.
 
-    ده الجدول اللي التيم بيختار منه عتبة الـ auto-block. المقايضة:
-    عتبة أعلى = false alarms أقل (مستخدمين مش هيتقفلوا غلط) بس هجمات
-    فايتة أكتر. القرار بتاعهم (§3) — إحنا بنديهم الأرقام.
+    This is the table the team picks the auto-block threshold from. The trade-off:
+    a higher threshold = fewer false alarms (fewer users wrongly blocked) but more
+    missed attacks. The decision is theirs (§3) — we give them the numbers.
 
-    ملاحظة: الأعمدة دي غير الـ binary.fpr اللي فوق — دي على argmax
-    (اللي الموديل بيقوله فعلاً)، ودي على عتبة صريحة على P(attack).
+    Note: these columns differ from binary.fpr above — that one is on argmax
+    (what the model actually says), these use an explicit threshold on P(attack).
     """
     true_attack = y_true != BENIGN
     n_attack = int(true_attack.sum())
@@ -68,14 +68,14 @@ def threshold_table(
 
 
 def _latency_ms(model, X: pd.DataFrame, n: int = 200) -> dict:
-    """زمن التنبؤ لـ flow **واحد** — ده اللي الباك‑إند هيعمله فعلاً.
+    """Prediction latency for **one** flow — what the backend actually does.
 
-    مش بنقيس batch، لأن ai_engine.py بيستقبل flow واحد في المرة.
+    We don't measure a batch, because ai_engine.py receives one flow at a time.
 
-    بنقيس بـ n_jobs=1 عن قصد: التدريب بيستخدم n_jobs=-1 (كل الأنوية) وده
-    صح للتدريب، لكن على صف واحد تكلفة توزيع الـ threads أكبر من الشغل نفسه
-    (قِسناها: 14.6ms بـ n_jobs=-1 مقابل 2.6ms بـ n_jobs=1). export.py بيحفظ
-    الموديل بـ n_jobs=1، فالرقم ده هو اللي الإنتاج هيشوفه فعلاً.
+    Measured with n_jobs=1 on purpose: training uses n_jobs=-1 (every core), which is
+    right for training, but for a single row the thread overhead exceeds the work itself
+    (measured: 14.6 ms with n_jobs=-1 vs 2.6 ms with n_jobs=1). export.py saves
+    the model with n_jobs=1, so this number is what production actually sees.
     """
     est = model.named_steps["model"] if hasattr(model, "named_steps") else model
     original_n_jobs = getattr(est, "n_jobs", None)
@@ -106,17 +106,17 @@ def _latency_ms(model, X: pd.DataFrame, n: int = 200) -> dict:
 
 
 def _throughput(model, X: pd.DataFrame, single_p50_ms: float) -> dict:
-    """كام flow في الثانية — single مقابل batch.
+    """Flows per second — single vs batch.
 
-    مهم وقت الـ DoS: الهجوم بيولّد آلاف الـ flows في الثانية. لو الباك‑إند
-    بينادي predict() لكل flow لوحده هياخد ~1/single_p50 فقط، بينما
-    predict_many() بتعدّي الدفعة كلها لـ predict_proba مرة واحدة —
-    الفرق أوامر مقدار، لأن تكلفة sklearn الثابتة بتتوزّع على الدفعة.
+    Matters during a DoS: the attack generates thousands of flows per second. If the backend
+    calls predict() once per flow it only gets ~1/single_p50, while
+    predict_many() passes the whole batch to predict_proba at once —
+    orders of magnitude faster, because sklearn's fixed overhead is shared across the batch.
     """
     est = model.named_steps["model"] if hasattr(model, "named_steps") else model
     original_n_jobs = getattr(est, "n_jobs", None)
     if original_n_jobs is not None:
-        est.n_jobs = 1  # نفس إعداد الموديل المحفوظ
+        est.n_jobs = 1  # same setting as the saved model
 
     try:
         out = {"single_flows_per_sec": round(1000.0 / single_p50_ms, 1), "batch": []}
@@ -143,7 +143,7 @@ def _throughput(model, X: pd.DataFrame, single_p50_ms: float) -> dict:
 
 
 def _feature_importance(model, feature_names: list[str], top: int = 20) -> list[dict]:
-    """Cell 68 — أهم الـ features حسب الموديل. للتقرير، مش للقرار."""
+    """Cell 68 — top features according to the model. For the report, not for decisions."""
     est = model.named_steps["model"] if hasattr(model, "named_steps") else model
     if not hasattr(est, "feature_importances_"):
         return []
@@ -154,11 +154,11 @@ def _feature_importance(model, feature_names: list[str], top: int = 20) -> list[
 
 
 def evaluate(model, X_test: pd.DataFrame, y_test: pd.Series) -> dict:
-    """كل مقاييس التقييم → dict جاهز يتحفظ في metrics.json."""
+    """All evaluation metrics → a dict ready to be saved as metrics.json."""
     classes = [str(c) for c in model.classes_]
     y_true = np.asarray(y_test, dtype=object)
     y_pred = np.asarray(model.predict(X_test), dtype=object)
-    proba = model.predict_proba(X_test)  # numpy array (بند ١٠)
+    proba = model.predict_proba(X_test)  # numpy array (item 10)
 
     # ---------------- 1) per-class (Cell 60) ----------------
     report = classification_report(
@@ -174,8 +174,8 @@ def evaluate(model, X_test: pd.DataFrame, y_test: pd.Series) -> dict:
         for c in classes
     }
 
-    # ---------------- 2) binary: benign ضد هجوم (Cell 62) ----------------
-    # P(attack) = 1 - P(benign) — نفس المعادلة اللي في العقد (§3)
+    # ---------------- 2) binary: benign vs attack (Cell 62) ----------------
+    # P(attack) = 1 - P(benign) — the same formula as in the contract (§3)
     benign_i = classes.index(BENIGN)
     p_attack = 1.0 - proba[:, benign_i]
 
@@ -188,10 +188,10 @@ def evaluate(model, X_test: pd.DataFrame, y_test: pd.Series) -> dict:
     try:
         auc = round(float(roc_auc_score(true_attack, p_attack)), 4)
     except ValueError:
-        auc = None  # class واحدة بس في الـ test set
+        auc = None  # only one class in the test set
 
     binary = {
-        # أخطر رقم للتيم: flows سليمة هتتقفل على المستخدم غلط
+        # The most important number for the team: clean flows that would wrongly be blocked
         "fpr": round(float(fp / (fp + tn)) if (fp + tn) else 0.0, 5),
         "detection_rate": round(float(tp / (tp + fn)) if (tp + fn) else 0.0, 4),
         "precision": round(float(tp / (tp + fp)) if (tp + fp) else 0.0, 4),
@@ -205,7 +205,7 @@ def evaluate(model, X_test: pd.DataFrame, y_test: pd.Series) -> dict:
     # ---------------- 3) confusion matrix (Cell 58) ----------------
     cm = confusion_matrix(y_true, y_pred, labels=classes)
 
-    # ---------------- 4) الأداء ----------------
+    # ---------------- 4) Performance ----------------
     latency = _latency_ms(model, X_test)
 
     metrics = {
@@ -214,7 +214,7 @@ def evaluate(model, X_test: pd.DataFrame, y_test: pd.Series) -> dict:
         "per_class": per_class,
         "macro_f1": round(float(report["macro avg"]["f1-score"]), 4),
         "macro_recall": round(float(report["macro avg"]["recall"]), 4),
-        # للعلم بس — مش أساس الاختيار (§8 بند ٧)
+        # For reference only — not a selection criterion (§8 item 7)
         "accuracy_not_for_selection": round(float(report["accuracy"]), 4),
         "binary": binary,
         "thresholds": threshold_table(y_true, p_attack),
@@ -234,7 +234,7 @@ def evaluate(model, X_test: pd.DataFrame, y_test: pd.Series) -> dict:
 
 
 def _print_summary(m: dict) -> None:
-    """ملخّص مقروء — مرتّب بالـ recall عشان الأخطر يبان الأول."""
+    """Readable summary — sorted by recall so the worst shows first."""
     print(f"\n{'=' * 72}")
     print(f"EVALUATION  ({m['n_test']:,} test flows)")
     print(f"{'=' * 72}")
@@ -242,39 +242,39 @@ def _print_summary(m: dict) -> None:
     rows = pd.DataFrame(m["per_class"]).T.sort_values("recall")
     rows["missed"] = (1 - rows["recall"]) * rows["support"]
     rows["missed"] = rows["missed"].round(0).astype(int)
-    print("\nPer-class (مرتّب بالـ recall — الأقل = الأخطر):")
+    print("\nPer-class (sorted by recall — lowest = most dangerous):")
     print(rows.to_string())
 
     b = m["binary"]
-    print("\nBinary (benign ضد هجوم):")
-    print(f"  detection rate : {b['detection_rate']:.4f}   ← نسبة الهجمات اللي اتمسكت")
-    print(f"  FPR            : {b['fpr']:.5f}   ← flows سليمة اتصنّفت هجوم")
+    print("\nBinary (benign vs attack):")
+    print(f"  detection rate : {b['detection_rate']:.4f}   ← share of attacks caught")
+    print(f"  FPR            : {b['fpr']:.5f}   ← clean flows classified as attacks")
     print(f"  ROC-AUC        : {b['roc_auc']}")
     print(f"  TN={b['tn']:,}  FP={b['fp']:,}  FN={b['fn']:,}  TP={b['tp']:,}")
 
-    print("\nThresholds على P(attack) — للـ auto-block في core/decision.py:")
+    print("\nThresholds on P(attack) — for auto-block in core/decision.py:")
     th = pd.DataFrame(m["thresholds"]).set_index("threshold")
     print(th.to_string())
 
     print(f"\nmacro-F1: {m['macro_f1']:.4f}  |  macro-recall: {m['macro_recall']:.4f}")
     print(
         f"accuracy: {m['accuracy_not_for_selection']:.4f}  "
-        f"← للعلم بس، مش أساس الاختيار (§8 بند ٧)"
+        f"← for reference only, not a selection criterion (§8 item 7)"
     )
 
     lat, thr = m["latency"], m["throughput"]
     print(f"\nLatency/flow (n_jobs=1): p50={lat['p50_ms']}ms  p95={lat['p95_ms']}ms")
     print(
-        f"  predict()      flow واحد في المرة : {thr['single_flows_per_sec']:>10,.0f} flow/sec"
+        f"  predict()      one flow at a time  : {thr['single_flows_per_sec']:>10,.0f} flow/sec"
     )
     for b in thr["batch"]:
         print(
-            f"  predict_many() دفعة {b['size']:>5,}         : "
-            f"{b['flows_per_sec']:>10,.0f} flow/sec  ({b['total_ms']}ms للدفعة)"
+            f"  predict_many() batch of {b['size']:>5,}     : "
+            f"{b['flows_per_sec']:>10,.0f} flow/sec  ({b['total_ms']}ms per batch)"
         )
 
     cm = m["confusion_matrix"]
-    print("\nConfusion matrix (صفوف = الحقيقة، أعمدة = التنبؤ):")
+    print("\nConfusion matrix (rows = truth, columns = prediction):")
     print(
         pd.DataFrame(cm["matrix"], index=cm["labels"], columns=cm["labels"]).to_string()
     )
@@ -290,11 +290,11 @@ def evaluate_saved(
     test_set: str = "data/test_v1.parquet",
     config: str = "config.yaml",
 ) -> dict:
-    """يقيّم موديل **محفوظ** على الـ golden test set — من غير إعادة تدريب.
+    """Evaluate a **saved** model on the golden test set — without retraining.
 
-    ده اللي بنستخدمه لمقارنة v1.1 بـ v1 على نفس الصفوف بالظبط (§7).
-    الـ features بنبنيها بترتيب schema.json مش feature_list(config)، عشان
-    الموديل يشوف الأعمدة بنفس الترتيب اللي اتدرّب عليه.
+    This is how we compare v1.1 with v1 on exactly the same rows (§7).
+    Features are built in schema.json order, not feature_list(config), so the
+    model sees the columns in the order it was trained on.
     """
     import json
 
@@ -317,10 +317,10 @@ def evaluate_saved(
     missing = [f for f in schema["features"] if f not in X.columns]
     if missing:
         raise SystemExit(
-            f"الـ golden set مفيهوش الـ features دي: {missing[:5]}\n"
-            f"يعني config.yaml اتغيّر بعد ما الموديل اتدرّب."
+            f"The golden set is missing these features: {missing[:5]}\n"
+            f"So config.yaml changed after the model was trained."
         )
-    X = X[schema["features"]].astype("float32")  # نفس الترتيب بالظبط
+    X = X[schema["features"]].astype("float32")  # exactly the same order
     return evaluate(model, X, df["label"])
 
 
@@ -329,7 +329,7 @@ def _main() -> None:
     import json
 
     ap = argparse.ArgumentParser(
-        description="يقيّم موديل محفوظ على الـ golden test set (من غير تدريب)"
+        description="Evaluate a saved model on the golden test set (no training)"
     )
     ap.add_argument("--model-dir", default="models/v1")
     ap.add_argument("--test-set", default="data/test_v1.parquet")
@@ -337,22 +337,22 @@ def _main() -> None:
     ap.add_argument(
         "--write",
         action="store_true",
-        help="يكتب النتيجة في <model-dir>/metrics.json",
+        help="write the result to <model-dir>/metrics.json",
     )
     args = ap.parse_args()
 
     metrics = evaluate_saved(args.model_dir, args.test_set, args.config)
     if args.write:
         path = os.path.join(args.model_dir, "metrics.json")
-        # merge مش overwrite: evaluate() مابينتجش المفاتيح اللي train.py
-        # بيضيفها بعده (زي train_seconds) — الكتابة فوق كانت بتضيّعها.
+        # Merge, not overwrite: evaluate() doesn't produce the keys that train.py
+        # adds afterwards (like train_seconds) — overwriting used to lose them.
         merged = {}
         if os.path.isfile(path):
             with open(path, encoding="utf-8") as fh:
                 merged = json.load(fh)
             kept = [k for k in merged if k not in metrics]
             if kept:
-                print(f"\nمحافظين على مفاتيح من الملف القديم: {kept}")
+                print(f"\nKept keys from the old file: {kept}")
         merged.update(metrics)
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(merged, fh, indent=2, ensure_ascii=False)

@@ -1,8 +1,8 @@
 """
-tests/test_predict.py — العقد (§3) + أمان load() + تطابق مسار الكود.
+tests/test_predict.py — the contract (§3) + load() safety + code-path parity.
 
-الـ tests اللي محتاجة model.pkl أو الـ golden set بتعمل skip لو مش موجودين،
-عشان pytest يعدّي على أي جهاز من غير ما حد يدرّب الأول.
+Tests that need model.pkl or the golden set are skipped if they are missing,
+so pytest passes on any machine without training first.
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ from mygate_ai import (
     predict_many,
 )
 
-# الموديول نفسه — عشان نوصل للحالة الداخلية (_model, _features) في الـ tests.
-# التيم بيستورد من mygate_ai مباشرةً؛ ده وصول داخلي للاختبار بس.
+# The module itself — to reach internal state (_model, _features) in the tests.
+# The team imports from mygate_ai directly; this internal access is for testing only.
 from mygate_ai import inference as pmod
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -36,11 +36,11 @@ SEED = 12345
 
 needs_model = pytest.mark.skipif(
     not os.path.isfile(os.path.join(DEFAULT_MODEL_DIR, "model.pkl")),
-    reason=f"مفيش model.pkl في {DEFAULT_MODEL_DIR} — شغّل python -m src.train",
+    reason=f"No model.pkl in {DEFAULT_MODEL_DIR} — run python -m src.train",
 )
 needs_golden = pytest.mark.skipif(
     not os.path.isfile(GOLDEN),
-    reason=f"مفيش {GOLDEN} — شغّل python -m src.train",
+    reason=f"No {GOLDEN} — run python -m src.train",
 )
 
 
@@ -49,17 +49,17 @@ needs_golden = pytest.mark.skipif(
 # ---------------------------------------------------------------------
 @pytest.fixture(scope="module")
 def loaded():
-    """الموديل محمّل مرة واحدة لكل الـ module."""
+    """The model, loaded once for the whole module."""
     load()
     return pmod._model
 
 
 @pytest.fixture(scope="module")
 def sample(loaded):
-    """1000 صف عشوائي (seed ثابت) من الـ golden set + الـ X المقابلة.
+    """1000 random rows (fixed seed) from the golden set + the matching X.
 
-    بيرجّع (flows, X) — flows بأسماء cicflowmeter زي ما بتوصل من الـ VM،
-    و X هي نفس الصفوف بالشكل اللي الـ Pipeline بياخده.
+    Returns (flows, X) — flows with cicflowmeter names as they arrive from the VM,
+    and X is the same rows in the shape the Pipeline takes.
     """
     import pandas as pd
     import yaml
@@ -71,7 +71,7 @@ def sample(loaded):
         cfg = yaml.safe_load(fh)
 
     def _py(v):
-        """numpy scalar → Python scalar؛ NaN → None (زي مفتاح ناقص)."""
+        """numpy scalar → Python scalar; NaN → None (like a missing key)."""
         if pd.isna(v):
             return None
         return v.item() if hasattr(v, "item") else v
@@ -84,7 +84,7 @@ def sample(loaded):
 
 @pytest.fixture
 def model_copy(tmp_path):
-    """نسخة معزولة من models/v1 — كل test أمان بيعبث في نسخته."""
+    """An isolated copy of models/v1 — each safety test tampers with its own copy."""
     dst = tmp_path / "model_dir"
     dst.mkdir()
     for f in ("model.pkl", "schema.json"):
@@ -103,25 +103,25 @@ def _write_schema(d, s):
 
 
 # ---------------------------------------------------------------------
-# 1) تطابق مسار الكود بين التدريب والـ inference
+# 1) Code-path parity between training and inference
 # ---------------------------------------------------------------------
 @needs_model
 @needs_golden
 def test_consistency_with_pipeline(loaded, sample):
-    """predict_many على dicts == الـ Pipeline على نفس الصفوف.
+    """predict_many on dicts == the Pipeline on the same rows.
 
-    **بيثبت إيه بالظبط:** إن مسار الـ inference
-    (dict → to_canonical → build_features → predict_proba) بيدّي نفس
-    الأرقام زي ما لو عدّينا الـ DataFrame للـ Pipeline مباشرةً. يعني
-    مفيش عمود اتقلب، ولا feature اتحسبت بطريقة تانية، ولا ترتيب اتغيّر
-    في الكود بتاعنا.
+    **What it proves:** that the inference path
+    (dict → to_canonical → build_features → predict_proba) gives the same
+    numbers as passing the DataFrame to the Pipeline directly. So no column
+    was swapped, no feature computed differently, and no order changed
+    in our code.
 
-    **مش بيثبت إيه:** إن مفيش training/serving skew بالمعنى الكامل.
-    الصفوف دي جاية من CSV طلّعه **CICFlowMeter (Java)**، بينما اللايف
-    جاي من **cicflowmeter==0.2.0 (Python)**. الأداتين ممكن يحسبوا نفس
-    الـ feature بشكل مختلف (وحدات flow_duration، الـ flow timeout،
-    init_win_byts، ...). التحقّق من ده محتاج lab CSV من تيم النيتورك —
-    شوف §6 في INTEGRATION.md.
+    **What it does not prove:** that there is no training/serving skew in the full sense.
+    These rows come from a CSV produced by **CICFlowMeter (Java)**, while live
+    flows come from **cicflowmeter (Python)**. The two tools can compute the same
+    feature differently (flow_duration units, flow timeout,
+    init_win_byts, ...). Checking that needs a lab CSV from the network team —
+    see §6 in INTEGRATION.md and KNOWN_ISSUES.md.
     """
     flows, X = sample
     model = loaded
@@ -152,7 +152,7 @@ def test_is_attack_matches_attack_type(loaded, sample):
 @needs_model
 @needs_golden
 def test_is_attack_true_implies_probability_at_least_half(loaded, sample):
-    """الاتجاه المستحيل (§8 في INTEGRATION.md): is_attack=True → p >= 0.5."""
+    """The impossible direction (§8 in INTEGRATION.md): is_attack=True → p >= 0.5."""
     for r in predict_many(sample[0]):
         if r["is_attack"]:
             assert r["probability"] >= 0.5
@@ -168,7 +168,7 @@ def test_predict_matches_predict_many(loaded, sample):
 
 
 # ---------------------------------------------------------------------
-# 2) العقد: الأنواع native مش numpy (psycopg2)
+# 2) The contract: native types, not numpy (psycopg2)
 # ---------------------------------------------------------------------
 @needs_model
 @needs_golden
@@ -193,7 +193,7 @@ def test_contract_value_ranges(loaded, sample):
 
 
 # ---------------------------------------------------------------------
-# 3) الحالات الحدّية
+# 3) Edge cases
 # ---------------------------------------------------------------------
 @needs_model
 def test_empty_batch_returns_empty_list(loaded):
@@ -227,7 +227,7 @@ def test_missing_keys_are_handled(loaded, sample):
 @needs_model
 @needs_golden
 def test_extra_keys_are_ignored(loaded, sample):
-    """src_ip / timestamp / ... مابيغيّروش النتيجة."""
+    """src_ip / timestamp / ... do not change the result."""
     flow = sample[0][0]
     noisy = {
         **flow,
@@ -244,7 +244,7 @@ def test_extra_keys_are_ignored(loaded, sample):
 @needs_model
 @needs_golden
 def test_string_values_give_same_result(loaded, sample):
-    """flow عدّى بـ JSON/HTTP فقيمه بقت strings."""
+    """A flow that went through JSON/HTTP, so its values became strings."""
     flow = sample[0][0]
     as_text = {k: ("" if v is None else str(v)) for k, v in flow.items()}
     assert predict(as_text) == predict(flow)
@@ -259,13 +259,13 @@ def test_empty_dict_does_not_raise(loaded):
 @needs_model
 @needs_golden
 def test_unparsable_value_becomes_nan(loaded, sample):
-    flow = {**sample[0][0], "flow_duration": "مش رقم"}
+    flow = {**sample[0][0], "flow_duration": "not a number"}
     r = predict(flow)
     assert 0.0 <= r["probability"] <= 1.0
 
 
 # ---------------------------------------------------------------------
-# 4) predict قبل load
+# 4) predict before load
 # ---------------------------------------------------------------------
 def test_predict_before_load_raises(monkeypatch):
     monkeypatch.setattr(pmod, "_model", None)
@@ -276,14 +276,14 @@ def test_predict_before_load_raises(monkeypatch):
 
 
 # ---------------------------------------------------------------------
-# 5) أمان load() — كل حالة في tmp_path لوحدها
+# 5) load() safety — each case in its own tmp_path
 # ---------------------------------------------------------------------
 @needs_model
 def test_tampered_model_raises_and_never_unpickles(model_copy, monkeypatch):
-    """sha256 غلط → ModelIntegrityError، و joblib.load ماتنداش خالص.
+    """Wrong sha256 → ModelIntegrityError, and joblib.load is never called.
 
-    ده جوهر الفحص: الـ pickle بيشغّل كود وقت الفك، فلو الملف متبدّل
-    لازم نرفض **قبل** ما نفكّه، مش بعده.
+    This is the point of the check: unpickling runs code, so if the file was
+    tampered with we must refuse **before** unpickling, not after.
     """
     import joblib
 
@@ -298,7 +298,7 @@ def test_tampered_model_raises_and_never_unpickles(model_copy, monkeypatch):
 
     with pytest.raises(ModelIntegrityError):
         load(str(model_copy))
-    assert calls == [], "joblib.load اتنادت على ملف مش موثوق!"
+    assert calls == [], "joblib.load was called on an untrusted file!"
 
 
 @needs_model
@@ -314,9 +314,9 @@ def test_tampered_model_with_strict_false_warns_and_loads(model_copy, capsys):
 
 @needs_model
 def test_sklearn_version_mismatch_raises(model_copy):
-    """sha256 **صح** + نسخة sklearn مختلفة → SklearnVersionError لوحده.
+    """**Correct** sha256 + a different sklearn version → SklearnVersionError on its own.
 
-    الملف مالوش أي تعديل، فالفحص الأول بيعدّي والتاني هو اللي بيمسك.
+    The file is untouched, so the first check passes and the second one catches it.
     """
     s = _read_schema(model_copy)
     s["sklearn_version"] = "0.0.0-not-a-real-version"
@@ -361,22 +361,22 @@ def test_missing_model_file_raises(model_copy):
 
 @needs_model
 def test_reload_restores_good_model(model_copy):
-    """بعد ما الـ tests عبثت، load() العادية لازم ترجّع النسخة السليمة."""
+    """After the tests tampered with things, a normal load() must restore the clean version."""
     load()
     assert pmod._model is not None
     assert pmod._model_version == mygate_ai.DEFAULT_MODEL_VERSION
 
 
 # ---------------------------------------------------------------------
-# 6) النسخ: pyproject.toml == schema.json
+# 6) Versions: pyproject.toml == schema.json
 # ---------------------------------------------------------------------
 @needs_model
 def test_pinned_versions_match_schema():
-    """أي فرق هنا معناه إن الـ wheel هيثبّت نسخة غير اللي الموديل اتصدّر بيها."""
+    """Any difference here means the wheel would install a version other than the one the model was exported with."""
     tomllib = pytest.importorskip("tomllib")
     path = os.path.join(REPO, "pyproject.toml")
     if not os.path.isfile(path):
-        pytest.skip("مفيش pyproject.toml")
+        pytest.skip("No pyproject.toml")
 
     with open(path, "rb") as fh:
         project = tomllib.load(fh)["project"]
@@ -389,7 +389,7 @@ def test_pinned_versions_match_schema():
         ("numpy", "numpy_version"),
     ):
         assert pinned[dep] == schema[key], (
-            f"pyproject يثبّت {dep}=={pinned[dep]} بينما الموديل اتصدّر بـ "
+            f"pyproject pins {dep}=={pinned[dep]} while the model was exported with "
             f"{schema[key]}"
         )
 
@@ -399,7 +399,7 @@ def test_pinned_versions_match_schema():
 
 @needs_model
 def test_schema_features_match_fitted_model(loaded):
-    """الترتيب في schema.json == اللي الـ imputer اتدرّب عليه."""
+    """The order in schema.json == the order the imputer was trained on."""
     schema = _read_schema(DEFAULT_MODEL_DIR)
     fitted = [str(c) for c in loaded.named_steps["impute"].feature_names_in_]
     assert schema["features"] == fitted
