@@ -1,0 +1,81 @@
+# =====================================================================
+# MyGate AI — ملف الإعدادات
+# أي حاجة ممكن تتغيّر بين نسخة والتانية (v1, v2...) مكانها هنا بس.
+# =====================================================================
+
+model_version: "v1"
+
+# ---- مصادر الداتا ---------------------------------------------------
+# لإضافة داتاست جديدة: ضيف مصدر هنا + خريطة أعمدة له في src/schema.py
+sources:
+  cic2017:
+    kaggle_id: "chethuhn/network-intrusion-dataset"
+    path: "../archive"    # لو الفولدر موجود بيقرا منه، غير كده (Colab) بينزّل بـ kagglehub
+    enabled: true
+  # cic2018:            # v2 — لزيادة brute_force
+  #   kaggle_id: "solarmainframe/ids-intrusion-csv"
+  #   enabled: false
+  # lab:                # v2 — ترافيك معمل MyGate (cicflowmeter)
+  #   path: "data/lab/"
+  #   enabled: false
+
+# ---- خريطة الـ labels ------------------------------------------------
+# الاسم الأصلي في الداتاست  ->  الـ class بتاعتنا (العقد مع التيم)
+# أي label مش موجودة هنا بتتشال من التدريب (Web Attacks, Bot, ...)
+classes: [benign, portscan, brute_force, dos]
+
+label_map:
+  # --- CIC-IDS2017 ---
+  BENIGN: benign
+  PortScan: portscan
+  FTP-Patator: brute_force
+  SSH-Patator: brute_force
+  DDoS: dos
+  DoS Hulk: dos
+  DoS GoldenEye: dos
+  DoS slowloris: dos
+  DoS Slowhttptest: dos
+  # --- CIC-IDS2018 (v2) — أسماؤها مختلفة ---
+  # Benign: benign
+  # FTP-BruteForce: brute_force
+  # SSH-Bruteforce: brute_force
+  # DDoS attacks-LOIC-HTTP: dos
+  # DoS attacks-Hulk: dos
+
+# ---- الـ features ----------------------------------------------------
+# بالأسماء الموحّدة (canonical) اللي في src/schema.py
+# "all" = كل الـ features المشتركة بين التدريب والـ live
+features: all
+drop_features:
+  - fwd_header_len_dup      # عمود مكرر في CIC-IDS2017 (Fwd Header Length.1)
+  # الـ 8 أعمدة الثابتة (zero-variance) اللي Cell 17 لقاها في CIC-IDS2017:
+  - bwd_psh_flags
+  - bwd_urg_flags
+  - fwd_byts_b_avg
+  - fwd_pkts_b_avg
+  - fwd_blk_rate_avg
+  - bwd_byts_b_avg
+  - bwd_pkts_b_avg
+  - bwd_blk_rate_avg
+  # - dst_port              # البند ١٢: نجرّب من غيره
+  # - init_fwd_win_byts     # البند ١٢
+  # - init_bwd_win_byts     # البند ١٢
+
+# ---- التدريب ---------------------------------------------------------
+random_state: 42
+test_size: 0.3
+
+model:
+  type: random_forest       # random_forest | xgboost
+  params:
+    n_estimators: 100
+    max_depth: 20
+    min_samples_leaf: 10
+    n_jobs: -1
+
+# ---- المسارات --------------------------------------------------------
+paths:
+  cache: "data/clean.parquet"     # الداتا بعد التنظيف (البند ٧ من الـ base)
+  # جوا الـ package عشان load() تلاقي الموديل من غير مسار،
+  # والـ wheel ياخده كـ package data
+  models_dir: "mygate_ai/models"

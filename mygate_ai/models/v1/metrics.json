@@ -1,0 +1,233 @@
+{
+  "classes": [
+    "benign",
+    "brute_force",
+    "dos",
+    "portscan"
+  ],
+  "n_test": 748682,
+  "per_class": {
+    "benign": {
+      "precision": 0.9999,
+      "recall": 0.9991,
+      "f1": 0.9995,
+      "support": 622161
+    },
+    "brute_force": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 2746
+    },
+    "dos": {
+      "precision": 0.9972,
+      "recall": 0.9994,
+      "f1": 0.9983,
+      "support": 96529
+    },
+    "portscan": {
+      "precision": 0.9887,
+      "recall": 0.9995,
+      "f1": 0.9941,
+      "support": 27246
+    }
+  },
+  "macro_f1": 0.998,
+  "macro_recall": 0.9995,
+  "accuracy_not_for_selection": 0.9991,
+  "binary": {
+    "fpr": 0.00092,
+    "detection_rate": 0.9995,
+    "precision": 0.9955,
+    "roc_auc": 1.0,
+    "tn": 621586,
+    "fp": 575,
+    "fn": 62,
+    "tp": 126459
+  },
+  "thresholds": [
+    {
+      "threshold": 0.5,
+      "detection_rate": 0.99954,
+      "missed_attacks": 58,
+      "fpr": 0.000937,
+      "false_positives": 583
+    },
+    {
+      "threshold": 0.7,
+      "detection_rate": 0.99805,
+      "missed_attacks": 247,
+      "fpr": 0.000571,
+      "false_positives": 355
+    },
+    {
+      "threshold": 0.8,
+      "detection_rate": 0.99693,
+      "missed_attacks": 389,
+      "fpr": 0.00053,
+      "false_positives": 330
+    },
+    {
+      "threshold": 0.9,
+      "detection_rate": 0.99497,
+      "missed_attacks": 637,
+      "fpr": 0.000503,
+      "false_positives": 313
+    },
+    {
+      "threshold": 0.95,
+      "detection_rate": 0.9922,
+      "missed_attacks": 987,
+      "fpr": 0.0005,
+      "false_positives": 311
+    },
+    {
+      "threshold": 0.99,
+      "detection_rate": 0.98294,
+      "missed_attacks": 2158,
+      "fpr": 0.000479,
+      "false_positives": 298
+    }
+  ],
+  "confusion_matrix": {
+    "labels": [
+      "benign",
+      "brute_force",
+      "dos",
+      "portscan"
+    ],
+    "rows": "true",
+    "cols": "predicted",
+    "matrix": [
+      [
+        621586,
+        0,
+        266,
+        309
+      ],
+      [
+        0,
+        2746,
+        0,
+        0
+      ],
+      [
+        57,
+        0,
+        96470,
+        2
+      ],
+      [
+        5,
+        0,
+        8,
+        27233
+      ]
+    ]
+  },
+  "latency": {
+    "n_samples": 200,
+    "measured_with_n_jobs": 1,
+    "p50_ms": 3.108,
+    "p95_ms": 3.742,
+    "mean_ms": 3.205
+  },
+  "throughput": {
+    "single_flows_per_sec": 321.8,
+    "batch": [
+      {
+        "size": 100,
+        "total_ms": 4.91,
+        "flows_per_sec": 20380.0
+      },
+      {
+        "size": 1000,
+        "total_ms": 10.66,
+        "flows_per_sec": 93803.0
+      }
+    ]
+  },
+  "top_features": [
+    {
+      "feature": "dst_port",
+      "importance": 0.12562
+    },
+    {
+      "feature": "pkt_len_mean",
+      "importance": 0.05488
+    },
+    {
+      "feature": "flow_duration",
+      "importance": 0.04617
+    },
+    {
+      "feature": "bwd_seg_size_avg",
+      "importance": 0.03973
+    },
+    {
+      "feature": "bwd_pkt_len_mean",
+      "importance": 0.03953
+    },
+    {
+      "feature": "pkt_len_var",
+      "importance": 0.0394
+    },
+    {
+      "feature": "pkt_len_std",
+      "importance": 0.03937
+    },
+    {
+      "feature": "pkt_size_avg",
+      "importance": 0.03497
+    },
+    {
+      "feature": "bwd_header_len",
+      "importance": 0.02989
+    },
+    {
+      "feature": "bwd_pkts_s",
+      "importance": 0.0294
+    },
+    {
+      "feature": "subflow_fwd_byts",
+      "importance": 0.02872
+    },
+    {
+      "feature": "bwd_pkt_len_std",
+      "importance": 0.02554
+    },
+    {
+      "feature": "totlen_fwd_pkts",
+      "importance": 0.02505
+    },
+    {
+      "feature": "tot_fwd_pkts",
+      "importance": 0.0224
+    },
+    {
+      "feature": "fwd_iat_mean",
+      "importance": 0.02233
+    },
+    {
+      "feature": "bwd_pkt_len_max",
+      "importance": 0.02157
+    },
+    {
+      "feature": "pkt_len_max",
+      "importance": 0.02141
+    },
+    {
+      "feature": "flow_iat_max",
+      "importance": 0.02141
+    },
+    {
+      "feature": "subflow_fwd_pkts",
+      "importance": 0.01978
+    },
+    {
+      "feature": "fwd_pkt_len_max",
+      "importance": 0.01975
+    }
+  ],
+  "train_seconds": 113.4
+}

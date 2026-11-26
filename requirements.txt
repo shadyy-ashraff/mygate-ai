@@ -1,0 +1,10 @@
+# ⬅️ بدل Cell 0/1/3 — ثبّت نفس النسخ دي في التدريب وعلى الـ VM
+pandas
+numpy
+scikit-learn==1.6.1
+joblib
+pyyaml
+pyarrow          # parquet cache
+kagglehub
+# xgboost        # لو اخترنا XGBoost
+# pytest

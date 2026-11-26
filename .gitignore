@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+data/*
+!data/.gitkeep
+mygate_ai/models/*/
+dist/
+build/
+*.egg-info/
+.env
+.env.*
+.ruff_cache/
+.vscode/
+*.pkl
+!mygate_ai/models/v1/

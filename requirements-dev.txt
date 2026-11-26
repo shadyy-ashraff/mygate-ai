@@ -1,0 +1,10 @@
+# أدوات التطوير بس — مش بتتثبّت على الـ VM.
+# التثبيت:  .venv\Scripts\python -m pip install -r requirements-dev.txt
+-r requirements.txt
+
+ipykernel        # kernel النوت‑بوك في VS Code
+matplotlib       # رسومات الـ EDA (Cell 10/12/14) + التقرير
+seaborn          # heatmap الـ correlation (Cell 14)
+pytest           # tests/
+black            # formatting (نفس الباك‑إند)
+ruff             # linting (نفس الباك‑إند)

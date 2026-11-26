@@ -1,0 +1,37 @@
+# بناء wheel لـ mygate_ai — ده اللي بيتسلّم للباك‑إند.
+#   .venv\Scripts\python -m build --wheel
+#   pip install dist\mygate_ai-1.0.0-py3-none-any.whl
+# الموديل نفسه جوا الـ wheel كـ package data، فـ load() بتشتغل من غير مسار.
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mygate-ai"
+version = "1.0.0"
+description = "MyGate — تصنيف الـ network flows (CICFlowMeter) لـ benign/portscan/brute_force/dos"
+readme = "INTEGRATION.md"
+# مطابقة python_version في mygate_ai/models/v1/schema.json (3.12.10).
+# مضيّقة عن قصد: الـ model.pkl معمول بـ pickle، فنفس منطق تثبيت نسخ
+# المكتبات ينطبق على نسخة Python نفسها.
+requires-python = ">=3.12,<3.13"
+
+# النسخ دي **مثبّتة بالظبط** زي ما هي في mygate_ai/models/v1/schema.json.
+# الـ model.pkl معمول بـ pickle: أي نسخة مختلفة ممكن تفك الملف وتدّي
+# نتايج مختلفة بصمت، وعشان كده load(strict=True) بترفض التشغيل.
+dependencies = [
+    "scikit-learn==1.6.1",
+    "pandas==3.0.6",
+    "numpy==2.5.3",
+    "joblib==1.6.0",
+]
+
+[tool.setuptools]
+# mygate_ai بس — كود التدريب في src/ مش بيتشحن
+packages = ["mygate_ai"]
+
+[tool.setuptools.package-data]
+# النسخة المشحونة بس، مش كل الفولدرات اللي في mygate_ai/models/.
+# لازم تطابق DEFAULT_MODEL_VERSION في mygate_ai/inference.py.
+mygate_ai = ["models/v1/*"]
